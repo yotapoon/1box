@@ -3,21 +3,22 @@
 #include <math.h>
 #include <time.h>
 #include <windows.h>
-#define N 360
+#define N 300
 #define n ((int)ceil(log2(N)))
 #define q ((int)pow(2,n)-N)
 #define p ((N-q)/2)
-double a = 0.01;//radius of disk
+double a = 0.02;//radius of disk
 double e = 0.95,e_wall = 1.0;
 double g = 1.0;
-double Xmin = -1.6,Xmax = 1.6,X0 = 0.0;
+double Xmin = -1.0,Xmax = 1.0,X0 = 0.0;
 double Ymin = 0.0,Ymax = 1.0;
 double h_rec = 0.1;
 double U = 0.149;//箱の運動を決めるパラメータ
 double V0 = 1.0;
 int N_cell_x = 32,N_cell_y = 12;
-double T = 1000.0;
+double T = 20.0;
 double epsilon = 0.000001;
+
 
 
 struct NODE{
@@ -72,17 +73,21 @@ double EEPGM(struct PARTICLE particle[N],struct CELL cell[N_cell_x][N_cell_y],st
 
 
 int main(void){
-	FILE *fp_hist;
-	char name_hist[256];
-	sprintf(name_hist,"hist(N=%d).txt",N);
-	if((fp_hist = fopen(name_hist,"w"))==NULL){
+	FILE *fp_position,*fp_height;
+	char name_position[256];
+	sprintf(name_position,"position(N=%d).txt",N);
+	if((fp_position = fopen(name_position,"w"))==NULL){
 		printf("file_check open error\n");
+	}
+	if((fp_height = fopen("height.txt","w"))==NULL){
+		printf("file open error\n");
 	}
 	int i_current,j_current;
 	double v_max = 0.0;
 	double cell_length_x = (Xmax-Xmin)/(double)N_cell_x,cell_length_y =(Ymax-Ymin)/(double)N_cell_y;
-	double t=0.0,dt=0.01,trec=0.0,dtrec = (double)T/1000.0,t0,t_old,Trec = 0.2*T;
+	double t=0.0,dt=0.01,trec=0.0,dtrec = (double)T/200.0,t0,t_old,Trec = 0.2*T;
 	double t_cell=0.0,t_cell_old=0.0;
+	double height;
 	
 	//srand((unsigned) time(NULL));
 	struct PARTICLE particle[N];
@@ -122,10 +127,10 @@ int main(void){
 			MaskUpdate(particle,cell,node,j_current,t);
 		}
 		
-		if((((j_current == -1)||(j_current == -2))&&(t > Trec))&&(particle[i_current].y > h_rec)){//DWC
-			fprintf(fp_hist,"%lf %lf %lf %lf %d %d\n",particle[i_current].x,particle[i_current].y,particle[i_current].u,particle[i_current].v,i_current,j_current);
-		}
-		
+		//研究用
+//		if((((j_current == -1)||(j_current == -2))&&(t > Trec))&&(particle[i_current].y > h_rec)){//DWC
+//			fprintf(fp_hist,"%lf %lf %lf %lf %d %d\n",particle[i_current].x,particle[i_current].y,particle[i_current].u,particle[i_current].v,i_current,j_current);
+//		}
 		
 		//EEPGM マスク外の粒子とも衝突する可能性が生じるので登録し直す
 		if(t >= t_cell){
@@ -150,12 +155,19 @@ int main(void){
 			t_cell_old = t;
 			t_cell = EEPGM(particle,cell,node,t,&v_max);
 			printf("t = %lf, v_max = %lf\n",t,v_max);
+			height = 0.0;
+			for(int i=0;i<N;i++){
+				fprintf(fp_position,"%lf %lf\n",particle[i].x,particle[i].y);
+				height += particle[i].y/(double)N;
+			}
+			fprintf(fp_position,"\n\n");
+			fprintf(fp_height,"%lf %lf\n",t,height);
 			trec += dtrec;
 		}
 	}
 	
-	
-	fclose(fp_hist);
+	fclose(fp_position);
+	fclose(fp_height);
 	return 0;
 }
 
