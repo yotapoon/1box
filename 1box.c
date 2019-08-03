@@ -2,48 +2,46 @@
 #include <stdlib.h>
 #include <math.h>
 #include <time.h>
-#include <windows.h>
-#define N 300
-#define n ((int)ceil(log2(N)))
+
+#define N 300//粒子数
+#define n ((int)ceil(log2(N)))//完全平衡木の深さ
 #define q ((int)pow(2,n)-N)
 #define p ((N-q)/2)
 double a = 0.02;//radius of disk
-double e = 0.95,e_wall = 1.0;
-double g = 1.0;
-double Xmin = -1.0,Xmax = 1.0,X0 = 0.0;
-double Ymin = 0.0,Ymax = 1.0;
-double h_rec = 0.1;
-double U = 0.149;//箱の運動を決めるパラメータ
-double V0 = 1.0;
-int N_cell_x = 32,N_cell_y = 12;
-double T = 20.0;
+double e = 0.95,e_wall = 1.0;//それぞれ粒子同士、壁との反発係数
+double g = 1.0;//規格化された重力加速度
+double Xmin = -1.0,Xmax = 1.0;//左右の壁の位置
+double Ymin = 0.0,Ymax = 1.0;//底面とセルの最高点の位置
+double U = 0.149;//床面の振動する速度
+double V0 = 1.0;//初期条件での速度分布の標準偏差
+int N_cell_x = 32,N_cell_y = 12;//x,y方向のセルの分割数
+double T = 20.0;//シミュレーション終了時刻
 double epsilon = 0.000001;
 
 
-
-struct NODE{
-	int number;
-	double time;
-	struct NODE *left;
+struct NODE{//完全平衡木のノードの構造体
+	int number;//対応する粒子番号
+	double time;//対応する粒子の予測された最短衝突時刻
+	struct NODE *left;//上と左右をつなぐ
 	struct NODE *right;
 	struct NODE *parent;
 };
 
-struct EVENT{
+struct EVENT{//ある粒子のイベントの詳細(衝突時刻・相手)を記録
 	double time;
 	int number_particle;
-	int number_col;
+	int number_col;//今回は使わない
 };
 
-struct PARTICLE{
-	double x,y,u,v;
+struct PARTICLE{//粒子に関する情報をまとめる
+	double x,y,u,v;//位置・速度
 	double tau;//粒子の固有時間を記録，Delayed State Algorithm(DSA)による高速化のために必要
-	double next;
-	struct EVENT event;
+	double next;//自分の次に同じセルに入った粒子の番号
+	struct EVENT event;//次に予定されるイベント
 };
 
 struct CELL{
-	int first;
+	int first;//セルへの登録時に最も早く登録された粒子
 	int last;
 };
 
@@ -73,31 +71,31 @@ double EEPGM(struct PARTICLE particle[N],struct CELL cell[N_cell_x][N_cell_y],st
 
 
 int main(void){
-	FILE *fp_position,*fp_height;
+	FILE *fp_position,*fp_height;//ファイルの生成
 	char name_position[256];
-	sprintf(name_position,"position(N=%d).txt",N);
+	sprintf(name_position,"position(N=%d).txt",N);//一定時刻ごとに粒子の位置を保存
 	if((fp_position = fopen(name_position,"w"))==NULL){
 		printf("file_check open error\n");
 	}
-	if((fp_height = fopen("height.txt","w"))==NULL){
+	if((fp_height = fopen("height.txt","w"))==NULL){//粒子の高さの平均値を記録
 		printf("file open error\n");
 	}
-	int i_current,j_current;
-	double v_max = 0.0;
+	int i_current,j_current;//現在注目している粒子のペア,j_current<0:壁,j_current>=0:粒子
+	double v_max = 0.0;//最大速度を保存、セルの更新のために必要
 	double cell_length_x = (Xmax-Xmin)/(double)N_cell_x,cell_length_y =(Ymax-Ymin)/(double)N_cell_y;
-	double t=0.0,dt=0.01,trec=0.0,dtrec = (double)T/200.0,t0,t_old,Trec = 0.2*T;
-	double t_cell=0.0,t_cell_old=0.0;
+	double t=0.0,dt=0.01,trec=0.0,dtrec = (double)T/200.0;//200枚の画像からgifを生成
+	double t_cell=0.0,t_cell_old=0.0;//セルの更新時刻
 	double height;
 	
 	//srand((unsigned) time(NULL));
 	struct PARTICLE particle[N];
-	struct CELL cell[N_cell_x+1][N_cell_y+1];
+	struct CELL cell[N_cell_x][N_cell_y];
 	status_initialize(particle);//位置や速度の初期化
 	v_max = Vmax(particle);
-	t_cell = (cell_length_y-2.0*a)/(2.0*v_max);
+	t_cell = (cell_length_y-2.0*a)/(2.0*v_max);//この時間までにマスク外からの衝突はありえない
 	cell_register(particle,cell);//粒子をセルに登録する,nextofの初期化
 	
-	struct NODE *node[n+1][2*p+2*q];
+	struct NODE *node[n+1][2*p+2*q];//完全平衡木(あるいはトーナメント)を表す構造体
 	//nodeの実体化、もうちょっとおしゃれにしたい
 	for(int i=0;i<=n;i++){
 		for(int j=0;j<2*p+2*q;j++){
@@ -106,37 +104,31 @@ int main(void){
 	}
 	
 	for(int i=0;i<N;i++){
-		particle[i].event = Predictions(particle,cell,t,i);
-		//printf("%lf %d\n",particle[i].event.time,particle[i].event.number_particle);
+		particle[i].event = Predictions(particle,cell,t,i);//それぞれの粒子の次のイベントを予測
 	}
-	CBT_build(node,particle);
+	CBT_build(node,particle);//Complete Binary Treeを組み立てる
 	printf("set up ok\n");
-	//printf("time:%lf number:%d\n",node[0][0]->time,node[0][0]->number);
 	while(t <= T){
-			
+		
 		//NEXT EVENTの検索
-		i_current = node[0][0]->number;
-		j_current = particle[i_current].event.number_particle;
+		i_current = node[0][0]->number;//決勝のノードは最短の時間で衝突する粒子を示す
+		j_current = particle[i_current].event.number_particle;//i_currentの衝突相手(これは壁の可能性もある)
 		t = NextEvent(particle,cell,node,i_current,j_current);//NEXT EVENTを処理しtとparticle,cell,nodeを更新
 		t_cell = t_cell_update(particle[i_current],j_current,t_cell_old,&v_max);//t_cellとv_maxの更新
 		
-		//i_current,j_currentと衝突する粒子がいた場合はその粒子のeventはinvalidになってしまう
+		//i_current,j_currentと衝突する粒子がいた場合はその粒子のeventはinvalidになってしまうので新しくeventを作る
 		//そのような粒子は同じマスク内にしか存在しないはずなのでその中で探索
 		MaskUpdate(particle,cell,node,i_current,t);//i_currentの周りの粒子でinvalidなものがあればアップデート
 		if(j_current >= 0){//jについても同様
 			MaskUpdate(particle,cell,node,j_current,t);
 		}
 		
-		//研究用
-//		if((((j_current == -1)||(j_current == -2))&&(t > Trec))&&(particle[i_current].y > h_rec)){//DWC
-//			fprintf(fp_hist,"%lf %lf %lf %lf %d %d\n",particle[i_current].x,particle[i_current].y,particle[i_current].u,particle[i_current].v,i_current,j_current);
-//		}
 		
 		//EEPGM マスク外の粒子とも衝突する可能性が生じるので登録し直す
 		if(t >= t_cell){
 			t_cell_old = t;
 			t_cell = EEPGM(particle,cell,node,t,&v_max);
-			
+			//床に粒子がめり込んでいたらこのエラーが生じる
 			for(int i=0;i<N;i++){
 				if(particle[i].y < Ymin+a-epsilon){
 					printf("i=%d:error\n",i);
@@ -150,7 +142,7 @@ int main(void){
 			}
 			
 		}
-		
+		//粒子の位置の出力
 		if((t > trec)&&(t < T)){
 			t_cell_old = t;
 			t_cell = EEPGM(particle,cell,node,t,&v_max);
@@ -183,7 +175,7 @@ struct EVENT Predictions(struct PARTICLE particle[N],struct CELL cell[N_cell_x][
 	struct EVENT L;
 	
 	for(j=-3;j<0;j++){
-		t_temp = T_DWC(particle[i],particle[i].tau,j);//ここの時間がtでよいのか確認、必要ならparticle[i].tauにする
+		t_temp = T_DWC(particle[i],particle[i].tau,j);
 		if((t_temp > t) & ( t_temp < t_min)){
 			t_min = t_temp;
 			j_col = j;
@@ -193,12 +185,12 @@ struct EVENT Predictions(struct PARTICLE particle[N],struct CELL cell[N_cell_x][
 	int cell_x = getcell_x(particle[i].x,cell_length_x),cell_y = getcell_y(particle[i].y,cell_length_y);
 	for(int c1=-1;c1<1;c1++){
 		for(int c2=-1;c2<=1;c2++){
-			if((((cell_x+c1 >= 1) && (cell_x+c1 <= N_cell_x)) && (cell_y+c2 >= 1)) && (cell_y+c2 <= N_cell_y)){
+			if((((cell_x+c1 >= 0) && (cell_x+c1 <= N_cell_x-1)) && (cell_y+c2 >= 0)) && (cell_y+c2 <= N_cell_y-1)){
 				j = cell[cell_x+c1][cell_y+c2].first;
 				while(j >= 0){
 					particle_j = particle[j];
 					Free_evolution(&particle_j,particle[i].tau-particle[j].tau);
-					t_temp = T_DDC(particle[i],particle[j],particle[i].tau);//ここもtでよいか確認、必要ならparticle[i].tau
+					t_temp = T_DDC(particle[i],particle[j],particle[i].tau);
 					if((t_temp > t) && (t_temp < t_min)){
 						t_min = t_temp;
 						j_col = j;
@@ -210,7 +202,7 @@ struct EVENT Predictions(struct PARTICLE particle[N],struct CELL cell[N_cell_x][
 	}
 	L.time = t_min;
 	L.number_particle = j_col;
-	L.number_col = 0;//今後修正が必要になるかもしれない、要確認
+	L.number_col = 0;//今後修正が必要になるかもしれない
 	return L;
 }
 void CBT_build(struct NODE *node[n+1][2*p+2*q],struct PARTICLE particle[N]){
@@ -294,8 +286,8 @@ void cell_register(struct PARTICLE particle[N],struct CELL cell[N_cell_x][N_cell
 	for(i=0;i<N;i++){
 		particle[i].next = -1;
 	}
-	for(cell_x = 1;cell_x <= N_cell_x;cell_x++){
-		for(cell_y = 1;cell_y <= N_cell_y;cell_y++){
+	for(cell_x = 0;cell_x < N_cell_x;cell_x++){
+		for(cell_y = 0;cell_y < N_cell_y;cell_y++){
 			cell[cell_x][cell_y].first = -1;
 			cell[cell_x][cell_y].last = -1;
 		}
@@ -358,25 +350,19 @@ double rand_normal( double mu, double sigma ){
 int getcell_x(double x,double cell_length_x){
 	
 	if((x < Xmin+a)||(Xmax-a < x)){
-//		printf("x is out of range\n");
+		printf("x is out of range\n");
 	}
-	if(x > 0){
-		return N_cell_x/2+1+(int)(x/cell_length_x);
-	}else{
-		return N_cell_x/2+(int)(x/cell_length_x);
-	}
-	
+	return (int)((x-Xmin)/cell_length_x);
 }
 
 int getcell_y(double y,double cell_length_y){
 	if(y < Ymin){
-		//printf("error:y<0(%lf)\n",y);
-		//return -1;
-		return 1;
+		printf("error:y<0(%lf)\n",y);
+		return 0;
 	}else if(y>Ymax){
-		return N_cell_y;
+		return N_cell_y-1;//Ymaxよりも高い位置の粒子は一番高いセルに登録
 	}else{
-		return (int)(y/cell_length_y)+1;
+		return (int)(y/cell_length_y);
 	}
 }
 
@@ -394,7 +380,7 @@ void G1(struct PARTICLE *particle,int j){
 	if((j == -1) || (j == -2)){//collision with R or L wall
 		particle->u = -e_wall*particle->u;
 		if(j == -1){
-			particle->x = Xmax-a-epsilon;
+			particle->x = Xmax-a-epsilon;//このepsilon処理はgetcell_xのときなどに必要になる
 		}else{
 			particle->x = Xmin+a+epsilon;
 		}
@@ -508,7 +494,7 @@ void MaskUpdate(struct PARTICLE particle[N],struct CELL cell[N_cell_x][N_cell_y]
 	int cell_x = getcell_x(particle[i_current].x,cell_length_x) , cell_y = getcell_y(particle[i_current].y,cell_length_y),j;
 	for(int c1=-1;c1<=1;c1++){
 		for(int c2=-1;c2<=1;c2++){
-			if((((cell_x+c1 >= 1) && (cell_x+c1 <= N_cell_x)) && (cell_y+c2 >= 1)) && (cell_y+c2 <= N_cell_y)){
+			if((((cell_x+c1 >= 0) && (cell_x+c1 < N_cell_x)) && (cell_y+c2 >= 0)) && (cell_y+c2 < N_cell_y)){
 				j = cell[cell_x+c1][cell_y+c2].first;
 				while(j >= 0){
 					if(particle[j].event.number_particle == i_current){
