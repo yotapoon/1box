@@ -2,18 +2,17 @@ reset
 set nokey
 set pointsize 1.0
 file = "position(N=300)"
-H = 2.0
-L = 1.0
-set xrange[-L:L]
-set yrange[0.0:H]
+load "setting.txt"
+set xrange[Xmin:Xmax]
+set yrange[Ymin:Ymax]
 set size square
 set xlabel "x"
 set ylabel "y"
 set term gif animate
 set output file.".gif"
 
-n0=1
-n1=199
+n0=0
+n1=200
 dn=1
 
 load "plot.txt"

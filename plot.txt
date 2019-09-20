@@ -1,7 +1,7 @@
 if(exist("n")==0||n<0) n=n0
-title(n) = sprintf("t = %f",n*0.1)
+title(n) = sprintf("t = %.1f (%.1f\%)",n*dt,100.0*n/n1)
 unset label
-set label title(n) at 0.5*L,0.9*H
+set label title(n) at 0.4*Xmax,0.9*Ymax
 plot file.".txt" index n using 1:2 w p pt 6
 n= n+dn
 if(n<n1) reread
