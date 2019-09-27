@@ -1,0 +1,8 @@
+plot "height.txt" w l title "Event Driven Simulation"
+replot "height_tsd.txt" w l title "Time Step Simulation"
+set xlabel "time"
+set ylabel "average of height"
+set terminal jpeg
+set output "height.jpg"
+replot
+q
